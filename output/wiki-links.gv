@@ -1,0 +1,132 @@
+// WikiLinks
+digraph {
+	"/wiki/Autoimmune_disease" [label=Autoimmune_disease]
+	"/wiki/Malar_rash" [label="butterfly rash"]
+	"/wiki/Autoimmune_disease" -> "/wiki/Malar_rash"
+	"/wiki/Systemic_lupus_erythematosus" [label="systemic lupus erythematosus"]
+	"/wiki/Malar_rash" -> "/wiki/Systemic_lupus_erythematosus"
+	"/wiki/Lupus_erythematosus" [label="Lupus erythematosus"]
+	"/wiki/Systemic_lupus_erythematosus" -> "/wiki/Lupus_erythematosus"
+	"/wiki/Specialty_(medicine)" [label=Specialty]
+	"/wiki/Lupus_erythematosus" -> "/wiki/Specialty_(medicine)"
+	"/wiki/Lupus_(disambiguation)" [label="Lupus (disambiguation)"]
+	"/wiki/Systemic_lupus_erythematosus" -> "/wiki/Lupus_(disambiguation)"
+	"/wiki/Lupus" [label=Lupus]
+	"/wiki/Lupus_(disambiguation)" -> "/wiki/Lupus"
+	"/wiki/Medicine" [label=medicine]
+	"/wiki/Malar_rash" -> "/wiki/Medicine"
+	"/wiki/Medication" [label=medication]
+	"/wiki/Medicine" -> "/wiki/Medication"
+	"/wiki/Medicine_(disambiguation)" [label="Medicine (disambiguation)"]
+	"/wiki/Medication" -> "/wiki/Medicine_(disambiguation)"
+	"/wiki/Medicine_(disambiguation)" [label="Medicine (disambiguation)"]
+	"/wiki/Medicine" -> "/wiki/Medicine_(disambiguation)"
+	"/wiki/MOS:MED" [label="MOS:MED"]
+	"/wiki/Medicine_(disambiguation)" -> "/wiki/MOS":MED
+	"/wiki/Latin" [label=Latin]
+	"/wiki/Malar_rash" -> "/wiki/Latin"
+	"/wiki/Latin_(disambiguation)" [label="Latin (disambiguation)"]
+	"/wiki/Latin" -> "/wiki/Latin_(disambiguation)"
+	"/wiki/Latin" [label=Latin]
+	"/wiki/Latin_(disambiguation)" -> "/wiki/Latin"
+	"/wiki/Colosseum" [label=Colosseum]
+	"/wiki/Latin" -> "/wiki/Colosseum"
+	"/wiki/Colosseum_(disambiguation)" [label="Colosseum (disambiguation)"]
+	"/wiki/Colosseum" -> "/wiki/Colosseum_(disambiguation)"
+	"/wiki/Lupus" [label=lupus]
+	"/wiki/Autoimmune_disease" -> "/wiki/Lupus"
+	"/wiki/Lupus_erythematosus" [label="Lupus erythematosus"]
+	"/wiki/Lupus" -> "/wiki/Lupus_erythematosus"
+	"/wiki/Specialty_(medicine)" [label=Specialty]
+	"/wiki/Lupus_erythematosus" -> "/wiki/Specialty_(medicine)"
+	"/wiki/Medicine" [label=medicine]
+	"/wiki/Specialty_(medicine)" -> "/wiki/Medicine"
+	"/wiki/Rheumatology" [label=Rheumatology]
+	"/wiki/Lupus_erythematosus" -> "/wiki/Rheumatology"
+	"/wiki/Musculoskeletal_system" [label=Musculoskeletal]
+	"/wiki/Rheumatology" -> "/wiki/Musculoskeletal_system"
+	"/wiki/Lupus_(disambiguation)" [label="Lupus (disambiguation)"]
+	"/wiki/Lupus" -> "/wiki/Lupus_(disambiguation)"
+	"/wiki/Lupus" [label=Lupus]
+	"/wiki/Lupus_(disambiguation)" -> "/wiki/Lupus"
+	"/wiki/Lupus_erythematosus" [label="Lupus erythematosus"]
+	"/wiki/Lupus" -> "/wiki/Lupus_erythematosus"
+	"/wiki/Lupus_erythematosus" [label="Lupus erythematosus"]
+	"/wiki/Lupus_(disambiguation)" -> "/wiki/Lupus_erythematosus"
+	"/wiki/Specialty_(medicine)" [label=Specialty]
+	"/wiki/Lupus_erythematosus" -> "/wiki/Specialty_(medicine)"
+	"/wiki/SLE_(disambiguation)" [label="SLE (disambiguation)"]
+	"/wiki/Lupus" -> "/wiki/SLE_(disambiguation)"
+	"/wiki/Systemic_lupus_erythematosus" [label="Systemic lupus erythematosus"]
+	"/wiki/SLE_(disambiguation)" -> "/wiki/Systemic_lupus_erythematosus"
+	"/wiki/Lupus_erythematosus" [label="Lupus erythematosus"]
+	"/wiki/Systemic_lupus_erythematosus" -> "/wiki/Lupus_erythematosus"
+	"/wiki/Semiconductor_luminescence_equations" [label="Semiconductor luminescence equations"]
+	"/wiki/SLE_(disambiguation)" -> "/wiki/Semiconductor_luminescence_equations"
+	"/wiki/Luminescence" [label=luminescence]
+	"/wiki/Semiconductor_luminescence_equations" -> "/wiki/Luminescence"
+	"/wiki/Specialty_(medicine)" [label=Specialty]
+	"/wiki/Autoimmune_disease" -> "/wiki/Specialty_(medicine)"
+	"/wiki/Medicine" [label=medicine]
+	"/wiki/Specialty_(medicine)" -> "/wiki/Medicine"
+	"/wiki/Medication" [label=medication]
+	"/wiki/Medicine" -> "/wiki/Medication"
+	"/wiki/Medicine_(disambiguation)" [label="Medicine (disambiguation)"]
+	"/wiki/Medication" -> "/wiki/Medicine_(disambiguation)"
+	"/wiki/Medicine_(disambiguation)" [label="Medicine (disambiguation)"]
+	"/wiki/Medicine" -> "/wiki/Medicine_(disambiguation)"
+	"/wiki/MOS:MED" [label="MOS:MED"]
+	"/wiki/Medicine_(disambiguation)" -> "/wiki/MOS":MED
+	"/wiki/Medical_school" [label="medical school"]
+	"/wiki/Specialty_(medicine)" -> "/wiki/Medical_school"
+	"/wiki/Medical_college" [label="Medical college"]
+	"/wiki/Medical_school" -> "/wiki/Medical_college"
+	"/wiki/Medical_school" [label="Medical school"]
+	"/wiki/Medical_college" -> "/wiki/Medical_school"
+	"/wiki/Hospital_Records" [label="Hospital Records"]
+	"/wiki/Medical_school" -> "/wiki/Hospital_Records"
+	"/wiki/Drum_and_bass" [label="Drum and bass"]
+	"/wiki/Hospital_Records" -> "/wiki/Drum_and_bass"
+	"/wiki/Physician" [label=physicians]
+	"/wiki/Specialty_(medicine)" -> "/wiki/Physician"
+	"/wiki/Medical_Officer_(AYUSH)" [label="Medical Officer (AYUSH)"]
+	"/wiki/Physician" -> "/wiki/Medical_Officer_(AYUSH)"
+	"/wiki/India" [label=India]
+	"/wiki/Medical_Officer_(AYUSH)" -> "/wiki/India"
+	"/wiki/Medical_Officer_for_Health" [label="Medical Officer for Health"]
+	"/wiki/Physician" -> "/wiki/Medical_Officer_for_Health"
+	"/wiki/Health_department" [label="health department"]
+	"/wiki/Medical_Officer_for_Health" -> "/wiki/Health_department"
+	"/wiki/Rheumatology" [label=Rheumatology]
+	"/wiki/Autoimmune_disease" -> "/wiki/Rheumatology"
+	"/wiki/Musculoskeletal_system" [label=Musculoskeletal]
+	"/wiki/Rheumatology" -> "/wiki/Musculoskeletal_system"
+	"/wiki/Human_body" [label="Human body"]
+	"/wiki/Musculoskeletal_system" -> "/wiki/Human_body"
+	"/wiki/Latin" [label=Latin]
+	"/wiki/Human_body" -> "/wiki/Latin"
+	"/wiki/Medical_Subject_Headings" [label=MeSH]
+	"/wiki/Musculoskeletal_system" -> "/wiki/Medical_Subject_Headings"
+	"/wiki/Methanethiol" [label=Methanethiol]
+	"/wiki/Medical_Subject_Headings" -> "/wiki/Methanethiol"
+	"/wiki/Immune_system" [label=Immune]
+	"/wiki/Rheumatology" -> "/wiki/Immune_system"
+	"/wiki/Scanning_electron_microscope" [label="scanning electron microscope"]
+	"/wiki/Immune_system" -> "/wiki/Scanning_electron_microscope"
+	"/wiki/Scanning_tunneling_microscope" [label="scanning tunneling microscope (STM)"]
+	"/wiki/Scanning_electron_microscope" -> "/wiki/Scanning_tunneling_microscope"
+	"/wiki/Neutrophil" [label=neutrophil]
+	"/wiki/Immune_system" -> "/wiki/Neutrophil"
+	"/wiki/Neutrophile" [label=neutrophile]
+	"/wiki/Neutrophil" -> "/wiki/Neutrophile"
+	"/wiki/Rheumatoid_arthritis" [label="Rheumatoid arthritis"]
+	"/wiki/Rheumatology" -> "/wiki/Rheumatoid_arthritis"
+	"/wiki/Juvenile_idiopathic_arthritis" [label="juvenile idiopathic arthritis"]
+	"/wiki/Rheumatoid_arthritis" -> "/wiki/Juvenile_idiopathic_arthritis"
+	"/wiki/Childhood_arthritis" [label="childhood arthritis"]
+	"/wiki/Juvenile_idiopathic_arthritis" -> "/wiki/Childhood_arthritis"
+	"/wiki/Specialty_(medicine)" [label=Specialty]
+	"/wiki/Rheumatoid_arthritis" -> "/wiki/Specialty_(medicine)"
+	"/wiki/Medicine" [label=medicine]
+	"/wiki/Specialty_(medicine)" -> "/wiki/Medicine"
+}
