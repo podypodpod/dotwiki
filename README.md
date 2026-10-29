@@ -46,6 +46,23 @@ It gives up after 500 requests by default. If a page fails to load it carries on
 ### Output
 See the `output` folder for `wiki-path.gv`, the raw dot notation graph, and `wiki-path.gv.pdf`, the viewable diagram. They always go in this project's `output` folder, whichever folder you run the script from.
 
+For `python script.py "Black hole" Philosophy` the diagram looks like this:
+
+![Black hole -> Universe -> Philosophy, drawn by Graphviz](docs/example.svg)
+
+and `wiki-path.gv` holds the dot notation it was drawn from:
+
+```dot
+// WikiPath
+digraph {
+	"Black hole" [label="Black hole"]
+	Universe [label=Universe]
+	Philosophy [label=Philosophy]
+	"Black hole" -> Universe
+	Universe -> Philosophy
+}
+```
+
 If Graphviz isn't on your PATH it also looks in the usual install folder, `C:\Program Files\Graphviz\bin`. If it can't find it at all you still get the path and the `.gv` file, just not the PDF.
 
 ## Tests
