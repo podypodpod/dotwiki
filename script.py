@@ -54,34 +54,42 @@ def articleLinks(href):
                 links.append((newHref, link.text.strip()))
     return links
 
-def recurse(href, branchesDeep):
-    if branchesDeep == 0 or href in visited:
-        return
-    visited.add(href)
-    branchesDeep = branchesDeep - 1
+def buildGraph(topic, branchesDeep):
+    dot = Digraph(comment='WikiLinks')
+    visited = set()
 
-    for newHref, linkText in articleLinks(href)[:branchesDeep]:
-        print("    " + linkText + " -> " + newHref)
-        if newHref not in nodes:
-            nodes.add(newHref)
-            dot.node(newHref, linkText)
-        dot.edge(href, newHref)
-        recurse(newHref, branchesDeep)
+    startingTopic = topic.replace(' ', '_')
+    startingUrl = "/wiki/" + startingTopic
+    nodes = {startingUrl}
+    dot.node(startingUrl, startingTopic)
+
+    def recurse(href, branchesDeep):
+        # at the last level there are no links left to follow, so don't fetch the page
+        if branchesDeep <= 1 or href in visited:
+            return
+        visited.add(href)
+        branchesDeep = branchesDeep - 1
+
+        for newHref, linkText in articleLinks(href)[:branchesDeep]:
+            print("    " + linkText + " -> " + newHref)
+            if newHref not in nodes:
+                nodes.add(newHref)
+                dot.node(newHref, linkText)
+            dot.edge(href, newHref)
+            recurse(newHref, branchesDeep)
+
+    recurse(startingUrl, branchesDeep)
+    return dot
+
+def parseArgs(argv=None):
+    parser = argparse.ArgumentParser(description='Draw a diagram of the links between Wikipedia pages')
+    parser.add_argument('topic', nargs='?', default='Autoimmune_disease', help='starting page, e.g. Autoimmune_disease')
+    parser.add_argument('--depth', type=int, default=5, help='how many levels of links to follow')
+    parser.add_argument('--no-view', action='store_true', help="don't open the diagram when done")
+    return parser.parse_args(argv)
 
 
-parser = argparse.ArgumentParser(description='Draw a diagram of the links between Wikipedia pages')
-parser.add_argument('topic', nargs='?', default='Autoimmune_disease', help='starting page, e.g. Autoimmune_disease')
-parser.add_argument('--depth', type=int, default=5, help='how many levels of links to follow')
-parser.add_argument('--no-view', action='store_true', help="don't open the diagram when done")
-args = parser.parse_args()
-
-dot = Digraph(comment='WikiLinks')
-visited = set()
-
-startingTopic = args.topic.replace(' ', '_')
-startingUrl = "/wiki/" + startingTopic
-nodes = {startingUrl}
-dot.node(startingUrl, startingTopic)
-
-recurse(startingUrl, args.depth)
-dot.render('output/wiki-links.gv', view=not args.no_view)
+if __name__ == '__main__':
+    args = parseArgs()
+    dot = buildGraph(args.topic, args.depth)
+    dot.render('output/wiki-links.gv', view=not args.no_view)

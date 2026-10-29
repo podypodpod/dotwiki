@@ -33,7 +33,15 @@ python script.py "Black hole" --depth 3   # fewer levels, fewer requests
 python script.py --no-view                # don't open the diagram when done
 ```
 
-Depth 5 fetches up to 65 pages, so bigger depths get slow quickly.
+Depth 5 fetches up to 41 pages, so bigger depths get slow quickly.
+
+## Tests
+The tests use made-up pages instead of Wikipedia, so they don't need a connection.
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
 
 ### Output
 See the `output` folder for `wiki-links.gv`, the raw dot notation graph, and `wiki-links.gv.pdf`, the viewable diagram.
