@@ -37,7 +37,8 @@ def articleLinks(href):
     res.raise_for_status()
     soup = BeautifulSoup(res.text, 'html.parser')
 
-    content = soup.find('div', class_='mw-parser-output')
+    # look inside mw-content-text, the featured/protected badges at the top also use mw-parser-output
+    content = soup.select_one('#mw-content-text .mw-parser-output')
     if content is None:
         return []
     for junk in content.find_all(class_=NOT_CONTENT):
