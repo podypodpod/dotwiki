@@ -4,13 +4,15 @@
 Finds the shortest chain of links from one Wikipedia page to another (the [Wikipedia game](https://en.wikipedia.org/wiki/Wikipedia:Wiki_Game), or Wikiracing), and draws it as a dot notation graph.
 
 ```
-Black hole -> David Hilbert -> Philosophy
-2 click(s), found with 5 requests
+    Black hole -> David Hilbert isn't in the main article, searching again
+
+Black hole -> Universe -> Philosophy
+2 click(s), found with 14 requests
 ```
 
-It uses the Wikipedia API to search out from both ends at once: forwards through the links on the start page, and backwards through the pages that link to the end page. Each round it grows whichever side is smaller, and stops as soon as the two sides meet. That gives the shortest path while usually only needing a handful of requests. Redirects are followed, so `"Black holes"` works the same as `"Black hole"`.
+It uses the Wikipedia API to search out from both ends at once: forwards through the links on the start page, and backwards through the pages that link to the end page. Each round it grows whichever side is smaller, and stops as soon as the two sides meet. Redirects are followed, so `"Black holes"` works the same as `"Black hole"`.
 
-Links count if they're anywhere on the page, including the nav boxes at the bottom, the same as clicking them yourself.
+Only links in the main article count, not the nav boxes, sidebars, notes at the top or references. The API can't tell where on a page a link is, so once it has a path it downloads each page on it and checks every step is in the article text. If one isn't, that step is ruled out and it searches again. Ruled out steps really aren't in the article, so the path it ends up with is still the shortest one. A search usually takes 10 to 20 requests.
 
 [Wikipedia DOT graph notation](https://en.wikipedia.org/wiki/DOT_(graph_description_language))
 

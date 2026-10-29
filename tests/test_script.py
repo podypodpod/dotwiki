@@ -1,4 +1,5 @@
 import re
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -19,12 +20,16 @@ class FakeResponse:
 
 class FakeWikipedia:
     # a tiny made-up Wikipedia that answers the same API queries the script makes
-    def __init__(self, links, redirects=None, missing=(), failing=None, pageSize=500):
+    def __init__(self, links, redirects=None, missing=(), failing=None, pageSize=500,
+                 body=None, html=None, unparseable=()):
         self.links = links                  # title -> titles it links to
         self.redirects = redirects or {}    # old name -> real title
         self.missing = set(missing)         # titles that are red links
         self.failing = failing or {}        # title -> exception to raise when it's asked about
         self.pageSize = pageSize
+        self.body = body or {}              # title -> links in the main article, the rest are in a nav box
+        self.html = html or {}              # title -> article html, to test the html handling directly
+        self.unparseable = set(unparseable) # titles whose article text can't be fetched
         self.calls = []
 
     def resolve(self, title):
@@ -43,11 +48,32 @@ class FakeWikipedia:
             data['continue'] = {continueKey: str(end), 'continue': '||'}
         return data
 
+    def articleHtml(self, title):
+        if title in self.html:
+            return self.html[title]
+        inBody = self.body.get(title, self.links.get(title, []))
+        inNav = [t for t in self.links.get(title, []) if t not in inBody]
+
+        def anchors(titles):
+            return ''.join(f'<a href="/wiki/{quote(t.replace(" ", "_"))}">{t}</a> ' for t in titles)
+
+        return (f'<div class="mw-parser-output"><p>{anchors(inBody)}</p>'
+                f'<div class="navbox">{anchors(inNav)}</div></div>')
+
     def get(self, url, params=None, headers=None, timeout=None):
         self.calls.append({'url': url, 'params': params, 'headers': headers, 'timeout': timeout})
-        title = self.resolve(params['titles'])
+        title = self.resolve(params.get('titles') or params.get('page'))
         if title in self.failing:
             raise self.failing[title]
+
+        if params.get('action') == 'parse':
+            if title in self.unparseable:
+                return FakeResponse({'error': {'info': "The page you specified doesn't exist."}})
+            return FakeResponse({'parse': {'title': title, 'text': self.articleHtml(title)}})
+
+        if params.get('prop') == 'redirects':
+            names = [{'title': old} for old, new in self.redirects.items() if new == title]
+            return FakeResponse({'query': {'pages': [{'title': title, 'redirects': names}]}})
 
         if params.get('generator') == 'links':
             targets = list(dict.fromkeys(self.resolve(t) for t in self.links.get(title, [])))
@@ -63,6 +89,9 @@ class FakeWikipedia:
 
     def generators(self):
         return [c['params'].get('generator') for c in self.calls]
+
+    def parsed(self):
+        return [c['params']['page'] for c in self.calls if c['params'].get('action') == 'parse']
 
 
 @pytest.fixture
@@ -140,6 +169,71 @@ def test_linksTo_finds_pages_linking_in(wiki):
     wiki({'A': ['Target'], 'B': ['Other'], 'C': ['Old name']}, redirects={'Old name': 'Target'})
 
     assert list(script.linksTo(api(), 'Target')) == ['A', 'C']
+
+
+# hrefTitle / bodyLinks / aliases
+
+@pytest.mark.parametrize('href, expected', [
+    ('/wiki/Black_hole', 'Black hole'),
+    ('/wiki/Black_hole#History', 'Black hole'),
+    ('https://en.wikipedia.org/wiki/Black_hole', 'Black hole'),
+    ('/wiki/Caf%C3%A9', 'Café'),
+    ('/wiki/iPhone', 'IPhone'),
+    ('/wiki/File:Picture.jpg', None),
+    ('/wiki/Category:Physics', None),
+    ('#cite_note-1', None),
+    ('/w/index.php?title=Black_hole&action=edit', None),
+    ('https://example.com/wiki/Black_hole', None),
+])
+def test_hrefTitle(href, expected):
+    assert script.hrefTitle(href) == expected
+
+
+def test_bodyLinks_only_keeps_the_main_article(wiki):
+    wiki({}, html={'Start': '''
+        <div class="mw-parser-output">
+          <div class="hatnote"><a href="/wiki/Start_(disambiguation)">other uses</a></div>
+          <table class="sidebar"><tr><td><a href="/wiki/Sidebar_link">sidebar</a></td></tr></table>
+          <table class="infobox"><tr><td><a href="/wiki/Infobox_link">infobox</a></td></tr></table>
+          <p>Text with <a href="/wiki/First">first</a>, <a href="/wiki/File:Pic.jpg">a picture</a>,
+             <a href="#cite_note-1">[1]</a>, <a href="/wiki/Second#History">second</a>
+             and <a href="/wiki/Empty"> </a>.</p>
+          <div class="reflist"><a href="/wiki/Reference_link">reference</a></div>
+          <div class="navbox"><a href="/wiki/Navbox_link">navbox</a></div>
+        </div>'''})
+
+    assert script.bodyLinks(api(), 'Start') == {'First', 'Second', 'Infobox link'}
+
+
+def test_bodyLinks_raises_when_the_article_cant_be_fetched(wiki):
+    wiki({'Start': ['A']}, unparseable={'Start'})
+
+    with pytest.raises(requests.RequestException):
+        script.bodyLinks(api(), 'Start')
+
+
+def test_aliases_includes_redirects(wiki):
+    wiki({'Black hole': []}, redirects={'Black holes': 'Black hole', 'Blackhole': 'Black hole', 'Other': 'X'})
+
+    assert script.aliases(api(), 'Black hole') == {'Black hole', 'Black holes', 'Blackhole'}
+
+
+def test_BodyChecker_counts_links_through_redirects(wiki):
+    wiki({'A': ['Black holes', 'Nav']}, body={'A': ['Black holes']}, redirects={'Black holes': 'Black hole'})
+    checker = script.BodyChecker(api())
+
+    assert checker.inBody('A', 'Black hole')
+    assert not checker.inBody('A', 'Nav')
+
+
+def test_BodyChecker_fetches_each_article_once(wiki):
+    fake = wiki({'A': ['B', 'C']})
+    checker = script.BodyChecker(api())
+
+    checker.inBody('A', 'B')
+    checker.inBody('A', 'C')
+
+    assert fake.parsed() == ['A']
 
 
 # joinPath / drawPath
@@ -255,6 +349,91 @@ def test_gives_up_at_the_request_limit(wiki):
     assert limited.requests == 5
 
 
+def test_shortestPath_skips_banned_steps_both_ways(wiki):
+    wiki({'A': ['Shortcut', 'B'], 'Shortcut': ['End'], 'B': ['C'], 'C': ['End']})
+
+    path, _ = script.shortestPath(api(), 'A', 'End', banned={('A', 'Shortcut')})
+    assert path == ['A', 'B', 'C', 'End']
+
+    path, _ = script.shortestPath(api(), 'A', 'End', banned={('Shortcut', 'End')})
+    assert path == ['A', 'B', 'C', 'End']
+
+
+# articlePath
+
+def test_articlePath_ignores_nav_box_shortcuts(wiki):
+    # A only links to Shortcut from its nav box, so the real answer is the longer way round
+    wiki({'A': ['Shortcut', 'B'], 'Shortcut': ['End'], 'B': ['C'], 'C': ['End']}, body={'A': ['B']})
+
+    path, failed = script.articlePath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'C', 'End']
+    assert failed == []
+
+
+def test_articlePath_keeps_a_path_that_is_all_article_links(wiki):
+    fake = wiki({'A': ['B'], 'B': ['End']})
+
+    path, _ = script.articlePath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'End']
+    # it only searched once, then checked the two steps
+    assert sorted(fake.parsed()) == ['A', 'B']
+
+
+def test_articlePath_keeps_going_through_several_nav_box_links(wiki):
+    wiki({
+        'A': ['Nav1', 'Nav2', 'B'],
+        'Nav1': ['End'],
+        'Nav2': ['End'],
+        'B': ['Nav3', 'C'],
+        'Nav3': ['End'],
+        'C': ['End'],
+    }, body={'A': ['B'], 'B': ['C']})
+
+    path, _ = script.articlePath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'C', 'End']
+
+
+def test_articlePath_accepts_article_links_through_redirects(wiki):
+    wiki({'A': ['Old name'], 'B': ['End']}, redirects={'Old name': 'B'})
+
+    path, _ = script.articlePath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'End']
+
+
+def test_articlePath_reports_a_step_it_couldnt_check(wiki):
+    wiki({'A': ['Shortcut', 'B'], 'Shortcut': ['End'], 'B': ['C'], 'C': ['End']}, unparseable={'Shortcut'})
+
+    path, failed = script.articlePath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'C', 'End']
+    assert [page for page, _ in failed] == ['Shortcut']
+
+
+def test_articlePath_returns_none_when_only_nav_boxes_connect(wiki):
+    wiki({'A': ['End']}, body={'A': []})
+
+    path, _ = script.articlePath(api(), 'A', 'End')
+
+    assert path is None
+
+
+def test_articlePath_gives_up_at_the_request_limit(wiki):
+    links = {'P' + str(i): ['P' + str(i + 1), 'Nav'] for i in range(10)}
+    links['Nav'] = ['P10']
+    body = {'P' + str(i): ['P' + str(i + 1)] for i in range(10)}
+    limited = api(maxRequests=8)
+    wiki(links, body=body)
+
+    path, _ = script.articlePath(limited, 'P0', 'P10')
+
+    assert path is None
+    assert limited.gaveUp
+
+
 # main
 
 @pytest.fixture
@@ -274,6 +453,17 @@ def test_main_prints_the_path_and_draws_it(wiki, noRender, capsys):
     assert 'Black hole -> Star -> Sun' in out
     assert '2 click(s)' in out
     assert len(noRender) == 1
+
+
+def test_main_only_uses_article_links(wiki, noRender, capsys):
+    wiki({'A': ['Shortcut', 'B'], 'Shortcut': ['End'], 'B': ['End']}, body={'A': ['B']})
+
+    code = script.main(['A', 'End', '--no-view'])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert 'A -> Shortcut' in out and "isn't in the main article" in out
+    assert 'A -> B -> End' in out
 
 
 def test_main_says_when_a_page_does_not_exist(wiki, noRender, capsys):
