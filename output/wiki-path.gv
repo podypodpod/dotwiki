@@ -1,0 +1,8 @@
+// WikiPath
+digraph {
+	"Black hole" [label="Black hole"]
+	Universe [label=Universe]
+	Philosophy [label=Philosophy]
+	"Black hole" -> Universe
+	Universe -> Philosophy
+}
