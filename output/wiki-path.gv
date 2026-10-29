@@ -1,0 +1,8 @@
+// WikiPath
+digraph {
+	"Black hole" [label="Black hole"]
+	"David Hilbert" [label="David Hilbert"]
+	Philosophy [label=Philosophy]
+	"Black hole" -> "David Hilbert"
+	"David Hilbert" -> Philosophy
+}

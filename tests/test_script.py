@@ -2,326 +2,318 @@ import re
 
 import pytest
 import requests
-from bs4 import BeautifulSoup
 
 import script
 
 
-def page(body):
-    # roughly how a Wikipedia article is laid out, with a featured badge before the article itself
-    return f'''
-    <html><body>
-      <div class="mw-indicator"><div class="mw-parser-output">
-        <a href="/wiki/Wikipedia:Featured_articles">featured</a>
-      </div></div>
-      <div id="mw-content-text"><div class="mw-parser-output">{body}</div></div>
-    </body></html>'''
-
-
-def links(*titles):
-    return page(''.join(f'<p><a href="https://en.wikipedia.org/wiki/{t}">{t}</a></p>' for t in titles))
-
-
 class FakeResponse:
-    def __init__(self, text, status=200):
-        self.text = text
-        self.status = status
+    def __init__(self, data):
+        self.data = data
 
     def raise_for_status(self):
-        if self.status >= 400:
-            raise requests.HTTPError(str(self.status))
+        pass
+
+    def json(self):
+        return self.data
+
+
+class FakeWikipedia:
+    # a tiny made-up Wikipedia that answers the same API queries the script makes
+    def __init__(self, links, redirects=None, missing=(), failing=None, pageSize=500):
+        self.links = links                  # title -> titles it links to
+        self.redirects = redirects or {}    # old name -> real title
+        self.missing = set(missing)         # titles that are red links
+        self.failing = failing or {}        # title -> exception to raise when it's asked about
+        self.pageSize = pageSize
+        self.calls = []
+
+    def resolve(self, title):
+        return self.redirects.get(title, title)
+
+    def exists(self, title):
+        return title not in self.missing and title not in self.redirects
+
+    def page(self, title):
+        return {'title': title} if self.exists(title) else {'title': title, 'missing': True}
+
+    def results(self, titles, offset, continueKey):
+        end = offset + self.pageSize
+        data = {'query': {'pages': [self.page(t) for t in titles[offset:end]]}}
+        if end < len(titles):
+            data['continue'] = {continueKey: str(end), 'continue': '||'}
+        return data
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append({'url': url, 'params': params, 'headers': headers, 'timeout': timeout})
+        title = self.resolve(params['titles'])
+        if title in self.failing:
+            raise self.failing[title]
+
+        if params.get('generator') == 'links':
+            targets = list(dict.fromkeys(self.resolve(t) for t in self.links.get(title, [])))
+            return FakeResponse(self.results(targets, int(params.get('gplcontinue', 0)), 'gplcontinue'))
+
+        if params.get('generator') == 'linkshere':
+            linkers = [page for page, out in self.links.items()
+                       if title in (self.resolve(t) for t in out) and page not in self.redirects]
+            return FakeResponse(self.results(linkers, int(params.get('glhcontinue', 0)), 'glhcontinue'))
+
+        known = title in self.links or any(title in out for out in self.links.values())
+        return FakeResponse({'query': {'pages': [self.page(title) if known else {'title': title, 'missing': True}]}})
+
+    def generators(self):
+        return [c['params'].get('generator') for c in self.calls]
 
 
 @pytest.fixture
-def fakeWiki(monkeypatch):
-    # pages maps a /wiki/ path to its html (or an exception to raise), calls records every request made
-    pages = {}
-    calls = []
-
-    def fakeGet(url, headers=None, timeout=None):
-        calls.append({'url': url, 'headers': headers, 'timeout': timeout})
-        path = url[len(script.WIKI):]
-        if path not in pages:
-            return FakeResponse('', 404)
-        if isinstance(pages[path], Exception):
-            raise pages[path]
-        return FakeResponse(pages[path])
-
-    monkeypatch.setattr(script.requests, 'get', fakeGet)
-    return pages, calls
-
-
-def anchor(href, text='link'):
-    return BeautifulSoup(f'<a href="{href}">{text}</a>', 'html.parser').a
+def wiki(monkeypatch):
+    # call wiki(links, ...) to set up the fake Wikipedia for a test
+    def make(links, **kwargs):
+        fake = FakeWikipedia(links, **kwargs)
+        monkeypatch.setattr(script.requests, 'get', fake.get)
+        return fake
+    return make
 
-
-def edges(dot):
-    return re.findall(r'"([^"]+)" -> "([^"]+)"', dot.source)
 
+def api(maxRequests=500):
+    return script.WikiApi(maxRequests)
 
-def nodeIds(dot):
-    return re.findall(r'^\s*"([^"]+)" \[label=', dot.source, re.MULTILINE)
 
+# WikiApi
 
-# wikiPath
+def test_requests_identify_themselves_and_ask_for_json(wiki):
+    fake = wiki({'A': ['B']})
 
-@pytest.mark.parametrize('href, expected', [
-    ('/wiki/Lupus', '/wiki/Lupus'),
-    ('https://en.wikipedia.org/wiki/Lupus', '/wiki/Lupus'),
-    ('https://en.wikipedia.org/wiki/Lupus#Signs', '/wiki/Lupus'),
-    ('/wiki/Lupus#Signs', '/wiki/Lupus'),
-    ('#cite_note-1', ''),
-    ('https://example.com/wiki/Lupus', 'https://example.com/wiki/Lupus'),
-])
-def test_wikiPath(href, expected):
-    assert script.wikiPath(href) == expected
+    list(script.linksFrom(api(), 'A'))
 
+    call = fake.calls[0]
+    assert call['url'] == 'https://en.wikipedia.org/w/api.php'
+    assert 'dotwiki' in call['headers']['User-Agent']
+    assert call['timeout'] == 10
+    assert call['params']['format'] == 'json'
+    assert call['params']['redirects'] == '1'
 
-# isAGoodLink
 
-@pytest.mark.parametrize('href', [
-    '/wiki/Lupus',
-    'https://en.wikipedia.org/wiki/Malar_rash',
-    '/wiki/Specialty_(medicine)',
-])
-def test_isAGoodLink_accepts_articles(href):
-    assert script.isAGoodLink(anchor(href))
+def test_api_gives_up_after_max_requests(wiki):
+    wiki({'A': ['B', 'C', 'D', 'E']}, pageSize=1)
+    limited = api(maxRequests=2)
 
+    with pytest.raises(script.TooManyRequests):
+        list(script.linksFrom(limited, 'A'))
+    assert limited.requests == 2
+    assert limited.gaveUp
 
-@pytest.mark.parametrize('href', [
-    '/wiki/File:Lupusfoto.jpg',
-    '/wiki/Category:Autoimmune_diseases',
-    '/wiki/Help:IPA',
-    '/wiki/Talk:Lupus',
-    '/wiki/Wikipedia:Featured_articles',
-    '/wiki/MOS:MED',
-    '/wiki/Special:Random',
-    '/wiki/Lupus_(disambiguation)',
-    '/wiki/Main_Page',
-    '#cite_note-1',
-    '/w/index.php?title=Lupus&action=edit',
-    'https://example.com/wiki/Lupus',
-])
-def test_isAGoodLink_rejects_non_articles(href):
-    assert not script.isAGoodLink(anchor(href))
 
+# resolveTitle
 
-def test_isAGoodLink_rejects_links_without_text():
-    assert not script.isAGoodLink(anchor('/wiki/Lupus', text='   '))
+def test_resolveTitle_keeps_real_titles(wiki):
+    wiki({'Black hole': ['Star']})
+    assert script.resolveTitle(api(), 'Black hole') == 'Black hole'
 
 
-# articleLinks
+def test_resolveTitle_follows_redirects(wiki):
+    wiki({'Black hole': ['Star']}, redirects={'Black holes': 'Black hole'})
+    assert script.resolveTitle(api(), 'Black holes') == 'Black hole'
 
-def test_articleLinks_skips_badges_and_non_article_parts(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Start'] = page('''
-        <div class="hatnote"><a href="/wiki/Start_(disambiguation)">other uses</a>
-            <a href="/wiki/Hatnote_target">hatnote target</a></div>
-        <table class="sidebar"><tr><td><a href="/wiki/Sidebar_link">sidebar</a></td></tr></table>
-        <p>Text with <a href="https://en.wikipedia.org/wiki/First">first</a>
-           and <a href="/wiki/File:Picture.jpg">a picture</a>
-           and <a href="#cite_note-1">[1]</a>
-           and <a href="/wiki/Second#History">second</a>.</p>
-        <div class="navbox"><a href="/wiki/Navbox_link">navbox</a></div>
-        <div class="reflist"><a href="/wiki/Reference_link">reference</a></div>
-    ''')
 
-    assert script.articleLinks('/wiki/Start') == [
-        ('/wiki/First', 'first'),
-        ('/wiki/Second', 'second'),
-    ]
+def test_resolveTitle_returns_none_for_missing_pages(wiki):
+    wiki({'Black hole': ['Star']})
+    assert script.resolveTitle(api(), 'Not a real page') is None
 
 
-def test_articleLinks_removes_duplicates_and_self_links(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Start'] = page('''
-        <a href="/wiki/Start">this page</a>
-        <a href="/wiki/Start#Section">this page again</a>
-        <a href="/wiki/Other">other</a>
-        <a href="https://en.wikipedia.org/wiki/Other">other again</a>
-    ''')
+# linksFrom / linksTo
 
-    assert script.articleLinks('/wiki/Start') == [('/wiki/Other', 'other')]
+def test_linksFrom_follows_continue_to_get_every_link(wiki):
+    fake = wiki({'A': ['B', 'C', 'D', 'E', 'F']}, pageSize=2)
 
+    assert list(script.linksFrom(api(), 'A')) == ['B', 'C', 'D', 'E', 'F']
+    assert len(fake.calls) == 3
 
-def test_articleLinks_returns_nothing_without_article(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Empty'] = '<html><body><div class="mw-parser-output"><a href="/wiki/X">x</a></div></body></html>'
 
-    assert script.articleLinks('/wiki/Empty') == []
+def test_linksFrom_follows_redirects_and_skips_red_links(wiki):
+    wiki({'A': ['Old name', 'Red link', 'C']}, redirects={'Old name': 'B'}, missing={'Red link'})
 
+    assert list(script.linksFrom(api(), 'A')) == ['B', 'C']
 
-def test_articleLinks_sends_user_agent_and_timeout(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Start'] = links('A')
 
-    script.articleLinks('/wiki/Start')
+def test_linksTo_finds_pages_linking_in(wiki):
+    wiki({'A': ['Target'], 'B': ['Other'], 'C': ['Old name']}, redirects={'Old name': 'Target'})
 
-    assert calls[0]['url'] == 'https://en.wikipedia.org/wiki/Start'
-    assert 'dotwiki' in calls[0]['headers']['User-Agent']
-    assert calls[0]['timeout'] == 10
+    assert list(script.linksTo(api(), 'Target')) == ['A', 'C']
 
 
-def test_articleLinks_raises_on_http_error(fakeWiki):
-    with pytest.raises(requests.HTTPError):
-        script.articleLinks('/wiki/Missing')
+# joinPath / drawPath
 
+def test_joinPath_joins_both_halves():
+    forward = {'Start': None, 'A': 'Start', 'Meet': 'A'}
+    backward = {'End': None, 'B': 'End', 'Meet': 'B'}
 
-# buildGraph
+    assert script.joinPath(forward, backward, 'Meet') == ['Start', 'A', 'Meet', 'B', 'End']
 
-def test_buildGraph_follows_fewer_links_each_level(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Start'] = links('A', 'B', 'C')
-    pages['/wiki/A'] = links('A1', 'A2')
-    pages['/wiki/B'] = links('B1', 'B2')
 
-    dot, failed = script.buildGraph('Start', 3)
+def test_drawPath_draws_a_chain():
+    dot = script.drawPath(['Start', 'Middle', 'End'])
 
-    # depth 3: 2 links from Start, then 1 from each of those, and the last level isn't fetched
-    assert edges(dot) == [
-        ('/wiki/Start', '/wiki/A'),
-        ('/wiki/A', '/wiki/A1'),
-        ('/wiki/Start', '/wiki/B'),
-        ('/wiki/B', '/wiki/B1'),
-    ]
-    assert [c['url'] for c in calls] == [
-        'https://en.wikipedia.org/wiki/Start',
-        'https://en.wikipedia.org/wiki/A',
-        'https://en.wikipedia.org/wiki/B',
-    ]
+    assert re.findall(r'"?([\w ]+)"? -> "?([\w ]+)"?', dot.source) == [('Start', 'Middle'), ('Middle', 'End')]
 
 
-def test_buildGraph_does_not_refetch_visited_pages(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Start'] = links('A', 'B', 'C')
-    pages['/wiki/A'] = links('B', 'Start', 'C')
-    pages['/wiki/B'] = links('A', 'C', 'Start')
-    pages['/wiki/C'] = links('A', 'B', 'Start')
+# shortestPath
 
-    dot, failed = script.buildGraph('Start', 4)
+def test_same_start_and_end_needs_no_requests(wiki):
+    fake = wiki({'A': ['B']})
 
-    fetched = [c['url'] for c in calls]
-    assert len(fetched) == len(set(fetched))
-    # the links back to pages already seen are still drawn
-    assert ('/wiki/A', '/wiki/B') in edges(dot)
-    assert ('/wiki/B', '/wiki/A') in edges(dot)
+    assert script.shortestPath(api(), 'A', 'A') == (['A'], [])
+    assert fake.calls == []
 
 
-def test_buildGraph_adds_each_node_once(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Start'] = links('A', 'B', 'C')
-    pages['/wiki/A'] = links('C', 'B')
-    pages['/wiki/B'] = links('C', 'A')
-    pages['/wiki/C'] = links('A', 'B')
+def test_finds_a_direct_link(wiki):
+    wiki({'A': ['X', 'B'], 'X': []})
 
-    dot, failed = script.buildGraph('Start', 4)
+    path, failed = script.shortestPath(api(), 'A', 'B')
 
-    ids = nodeIds(dot)
-    assert len(ids) == len(set(ids))
-    assert set(ids) == {'/wiki/Start', '/wiki/A', '/wiki/B', '/wiki/C'}
-
-
-def test_buildGraph_depth_one_makes_no_requests(fakeWiki):
-    _, calls = fakeWiki
-
-    dot, failed = script.buildGraph('Start', 1)
-
-    assert calls == []
-    assert nodeIds(dot) == ['/wiki/Start']
-
-
-def test_buildGraph_turns_spaces_into_underscores(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Black_hole'] = links('Star')
-
-    dot, failed = script.buildGraph('Black hole', 2)
-
-    assert calls[0]['url'] == 'https://en.wikipedia.org/wiki/Black_hole'
-    assert edges(dot) == [('/wiki/Black_hole', '/wiki/Star')]
-
-
-def test_buildGraph_carries_on_after_a_failed_page(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Start'] = links('Broken', 'B', 'C')
-    # no page for Broken, so it gets a 404
-    pages['/wiki/B'] = links('B1', 'B2')
-
-    dot, failed = script.buildGraph('Start', 3)
-
-    assert [href for href, _ in failed] == ['/wiki/Broken']
-    assert '404' in failed[0][1]
-    # the broken page is still drawn, and the pages after it are still followed
-    assert edges(dot) == [
-        ('/wiki/Start', '/wiki/Broken'),
-        ('/wiki/Start', '/wiki/B'),
-        ('/wiki/B', '/wiki/B1'),
-    ]
-    assert [c['url'] for c in calls] == [
-        'https://en.wikipedia.org/wiki/Start',
-        'https://en.wikipedia.org/wiki/Broken',
-        'https://en.wikipedia.org/wiki/B',
-    ]
-
-
-def test_buildGraph_reports_every_kind_of_failure(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Start'] = links('Timeout', 'Offline', 'Missing', 'Fine')
-    pages['/wiki/Timeout'] = requests.Timeout('read timed out')
-    pages['/wiki/Offline'] = requests.ConnectionError('connection refused')
-    pages['/wiki/Fine'] = links('X')
-    pages['/wiki/X'] = links()
-
-    dot, failed = script.buildGraph('Start', 5)
-
-    assert [href for href, _ in failed] == ['/wiki/Timeout', '/wiki/Offline', '/wiki/Missing']
-    assert 'read timed out' in failed[0][1]
-    assert 'connection refused' in failed[1][1]
-    assert ('/wiki/Fine', '/wiki/X') in edges(dot)
-
-
-def test_buildGraph_failed_start_page_gives_just_the_start_node(fakeWiki):
-    dot, failed = script.buildGraph('Missing', 3)
-
-    assert [href for href, _ in failed] == ['/wiki/Missing']
-    assert nodeIds(dot) == ['/wiki/Missing']
-    assert edges(dot) == []
-
-
-def test_buildGraph_does_not_retry_a_failed_page(fakeWiki):
-    pages, calls = fakeWiki
-    pages['/wiki/Start'] = links('Broken', 'A')
-    pages['/wiki/A'] = links('Broken', 'B')
-    pages['/wiki/B'] = links()
-
-    dot, failed = script.buildGraph('Start', 4)
-
-    assert [c['url'] for c in calls].count('https://en.wikipedia.org/wiki/Broken') == 1
-    assert len(failed) == 1
-    assert ('/wiki/A', '/wiki/Broken') in edges(dot)
-
-
-def test_buildGraph_reports_nothing_when_all_pages_load(fakeWiki):
-    pages, _ = fakeWiki
-    pages['/wiki/Start'] = links('A', 'B')
-    pages['/wiki/A'] = links('B')
-    pages['/wiki/B'] = links('A')
-
-    dot, failed = script.buildGraph('Start', 3)
-
+    assert path == ['A', 'B']
     assert failed == []
+
+
+def test_finds_a_longer_chain(wiki):
+    wiki({'A': ['B'], 'B': ['C'], 'C': ['D'], 'D': ['E'], 'E': []})
+
+    path, _ = script.shortestPath(api(), 'A', 'E')
+
+    assert path == ['A', 'B', 'C', 'D', 'E']
+
+
+def test_picks_the_shortest_of_several_paths(wiki):
+    wiki({
+        'A': ['Long1', 'Short'],
+        'Long1': ['Long2'],
+        'Long2': ['Long3'],
+        'Long3': ['End'],
+        'Short': ['End'],
+    })
+
+    path, _ = script.shortestPath(api(), 'A', 'End')
+
+    assert path == ['A', 'Short', 'End']
+
+
+def test_searches_backward_when_that_side_is_smaller(wiki):
+    # the start links to lots of pages, but only one page links to the end
+    links = {'Start': ['P' + str(i) for i in range(20)]}
+    for i in range(20):
+        links['P' + str(i)] = []
+    links['P7'] = ['Bridge']
+    links['Bridge'] = ['End']
+    fake = wiki(links)
+
+    path, _ = script.shortestPath(api(), 'Start', 'End')
+
+    assert path == ['Start', 'P7', 'Bridge', 'End']
+    assert 'linkshere' in fake.generators()
+    # it shouldn't have needed to look at every one of the 20 pages' links
+    assert fake.generators().count('links') < 20
+
+
+def test_follows_redirects_along_the_way(wiki):
+    wiki({'A': ['Old name'], 'B': ['End']}, redirects={'Old name': 'B'})
+
+    path, _ = script.shortestPath(api(), 'A', 'End')
+
+    assert path == ['A', 'B', 'End']
+
+
+def test_returns_none_when_there_is_no_path(wiki):
+    wiki({'A': ['B'], 'B': ['A'], 'C': ['End']})
+    limited = api()
+
+    path, failed = script.shortestPath(limited, 'A', 'End')
+
+    assert path is None
+    assert failed == []
+    assert not limited.gaveUp
+
+
+def test_reports_a_failed_page_and_still_finds_a_path_round_it(wiki):
+    wiki({'A': ['Broken', 'C'], 'C': ['D'], 'D': ['End'], 'Broken': ['X'], 'X': ['End']},
+         failing={'Broken': requests.ConnectionError('connection refused')})
+
+    path, failed = script.shortestPath(api(), 'A', 'End')
+
+    assert path == ['A', 'C', 'D', 'End']
+    assert failed == [('Broken', 'connection refused')]
+
+
+def test_gives_up_at_the_request_limit(wiki):
+    links = {'P' + str(i): ['P' + str(i + 1)] for i in range(50)}
+    wiki(links)
+    limited = api(maxRequests=5)
+
+    path, _ = script.shortestPath(limited, 'P0', 'P50')
+
+    assert path is None
+    assert limited.gaveUp
+    assert limited.requests == 5
+
+
+# main
+
+@pytest.fixture
+def noRender(monkeypatch):
+    rendered = []
+    monkeypatch.setattr(script.Digraph, 'render', lambda self, *args, **kwargs: rendered.append(self.source))
+    return rendered
+
+
+def test_main_prints_the_path_and_draws_it(wiki, noRender, capsys):
+    wiki({'Black hole': ['Star'], 'Star': ['Sun'], 'Sun': []})
+
+    code = script.main(['Black hole', 'Sun', '--no-view'])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert 'Black hole -> Star -> Sun' in out
+    assert '2 click(s)' in out
+    assert len(noRender) == 1
+
+
+def test_main_says_when_a_page_does_not_exist(wiki, noRender, capsys):
+    wiki({'Black hole': ['Star']})
+
+    code = script.main(['Black hole', 'Not a real page', '--no-view'])
+
+    assert code == 1
+    assert "no Wikipedia page called Not a real page" in capsys.readouterr().out
+    assert noRender == []
+
+
+def test_main_says_when_it_gives_up(wiki, noRender, capsys):
+    wiki({'P' + str(i): ['P' + str(i + 1)] for i in range(50)})
+
+    code = script.main(['P0', 'P50', '--max-requests', '6', '--no-view'])
+
+    assert code == 1
+    assert 'gave up after 6 requests' in capsys.readouterr().out
+
+
+def test_main_says_when_there_is_no_path(wiki, noRender, capsys):
+    wiki({'A': ['B'], 'B': ['A'], 'C': ['End']})
+
+    code = script.main(['A', 'End', '--no-view'])
+
+    assert code == 1
+    assert 'no path from A to End' in capsys.readouterr().out
 
 
 # parseArgs
 
 def test_parseArgs_defaults():
-    args = script.parseArgs([])
-    assert args.topic == 'Autoimmune_disease'
-    assert args.depth == 5
+    args = script.parseArgs(['Black hole', 'Philosophy'])
+    assert args.start == 'Black hole'
+    assert args.end == 'Philosophy'
+    assert args.max_requests == 500
     assert args.no_view is False
 
 
-def test_parseArgs_options():
-    args = script.parseArgs(['Black hole', '--depth', '3', '--no-view'])
-    assert args.topic == 'Black hole'
-    assert args.depth == 3
-    assert args.no_view is True
+def test_parseArgs_needs_a_start_and_an_end():
+    with pytest.raises(SystemExit):
+        script.parseArgs(['Black hole'])

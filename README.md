@@ -1,9 +1,16 @@
 # DotWiki
 
 ## Description
-Creates a dot notation graph of the links between Wikipedia pages.
+Finds the shortest chain of links from one Wikipedia page to another (the [Wikipedia game](https://en.wikipedia.org/wiki/Wikipedia:Wiki_Game), or Wikiracing), and draws it as a dot notation graph.
 
-It starts at one page and follows links from the article text a few levels deep: 4 links from the starting page, then 3 from each of those, then 2, then 1. Links to the same page twice, disambiguation pages and namespace pages (`File:`, `Category:`, `Help:` ...) are skipped.
+```
+Black hole -> David Hilbert -> Philosophy
+2 click(s), found with 5 requests
+```
+
+It uses the Wikipedia API to search out from both ends at once: forwards through the links on the start page, and backwards through the pages that link to the end page. Each round it grows whichever side is smaller, and stops as soon as the two sides meet. That gives the shortest path while usually only needing a handful of requests. Redirects are followed, so `"Black holes"` works the same as `"Black hole"`.
+
+Links count if they're anywhere on the page, including the nav boxes at the bottom, the same as clicking them yourself.
 
 [Wikipedia DOT graph notation](https://en.wikipedia.org/wiki/DOT_(graph_description_language))
 
@@ -27,21 +34,20 @@ pip install -r requirements.txt
 ## Usage
 
 ```
-python script.py                          # starts at Autoimmune_disease, 5 levels deep
-python script.py "Black hole"             # pick a starting page
-python script.py "Black hole" --depth 3   # fewer levels, fewer requests
-python script.py --no-view                # don't open the diagram when done
+python script.py "Black hole" Philosophy
+python script.py "Kevin Bacon" "Ancient Rome" --no-view    # don't open the diagram when done
+python script.py Cheese Volcano --max-requests 2000        # allow a longer search
 ```
 
-Depth 5 fetches up to 41 pages, so bigger depths get slow quickly.
+It gives up after 500 requests by default. If a page fails to load it carries on without it, and lists it at the end in case a shorter path went through it. It exits with 1 if no path was found.
+
+### Output
+See the `output` folder for `wiki-path.gv`, the raw dot notation graph, and `wiki-path.gv.pdf`, the viewable diagram.
 
 ## Tests
-The tests use made-up pages instead of Wikipedia, so they don't need a connection.
+The tests use a made-up Wikipedia instead of the real one, so they don't need a connection.
 
 ```
 pip install -r requirements-dev.txt
 pytest
 ```
-
-### Output
-See the `output` folder for `wiki-links.gv`, the raw dot notation graph, and `wiki-links.gv.pdf`, the viewable diagram.
