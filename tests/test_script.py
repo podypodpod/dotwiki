@@ -1,4 +1,6 @@
+import os
 import re
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -438,9 +440,20 @@ def test_articlePath_gives_up_at_the_request_limit(wiki):
 
 @pytest.fixture
 def noRender(monkeypatch):
+    # records where diagrams would have been rendered, without needing Graphviz
     rendered = []
-    monkeypatch.setattr(script.Digraph, 'render', lambda self, *args, **kwargs: rendered.append(self.source))
+    monkeypatch.setattr(script, 'findGraphviz', lambda: True)
+    monkeypatch.setattr(script.Digraph, 'render', lambda self, filename, **kwargs: rendered.append(filename))
     return rendered
+
+
+@pytest.fixture
+def noGraphviz(monkeypatch):
+    saved = []
+    monkeypatch.setattr(script, 'findGraphviz', lambda: False)
+    monkeypatch.setattr(script.Digraph, 'render', lambda self, *args, **kwargs: pytest.fail('tried to render'))
+    monkeypatch.setattr(script.Digraph, 'save', lambda self, filename, **kwargs: saved.append(filename))
+    return saved
 
 
 def test_main_prints_the_path_and_draws_it(wiki, noRender, capsys):
@@ -453,6 +466,28 @@ def test_main_prints_the_path_and_draws_it(wiki, noRender, capsys):
     assert 'Black hole -> Star -> Sun' in out
     assert '2 click(s)' in out
     assert len(noRender) == 1
+
+
+def test_main_saves_next_to_the_script_wherever_its_run_from(wiki, noRender, monkeypatch, tmp_path):
+    wiki({'A': ['B'], 'B': []})
+    monkeypatch.chdir(tmp_path)
+
+    script.main(['A', 'B', '--no-view'])
+
+    expected = str(Path(script.__file__).resolve().parent / 'output' / 'wiki-path.gv')
+    assert noRender == [expected]
+
+
+def test_main_saves_the_dot_file_when_graphviz_is_missing(wiki, noGraphviz, capsys):
+    wiki({'A': ['B'], 'B': []})
+
+    code = script.main(['A', 'B', '--no-view'])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert 'A -> B' in out
+    assert "Graphviz isn't installed" in out
+    assert noGraphviz == [str(script.OUTPUT)]
 
 
 def test_main_only_uses_article_links(wiki, noRender, capsys):
@@ -492,6 +527,30 @@ def test_main_says_when_there_is_no_path(wiki, noRender, capsys):
 
     assert code == 1
     assert 'no path from A to End' in capsys.readouterr().out
+
+
+# findGraphviz
+
+def test_findGraphviz_uses_dot_on_the_path(monkeypatch):
+    monkeypatch.setattr(script.shutil, 'which', lambda name: r'C:\somewhere\dot.exe')
+    assert script.findGraphviz()
+
+
+def test_findGraphviz_finds_the_usual_install_folder(monkeypatch, tmp_path):
+    (tmp_path / 'dot.exe').write_text('')
+    monkeypatch.setattr(script.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(script, 'GRAPHVIZ_FOLDERS', [str(tmp_path / 'not here'), str(tmp_path)])
+    monkeypatch.setenv('PATH', 'C:\\Windows')
+
+    assert script.findGraphviz()
+    assert os.environ['PATH'].endswith(os.pathsep + str(tmp_path))
+
+
+def test_findGraphviz_gives_up_when_its_nowhere(monkeypatch, tmp_path):
+    monkeypatch.setattr(script.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(script, 'GRAPHVIZ_FOLDERS', [str(tmp_path)])
+
+    assert not script.findGraphviz()
 
 
 # parseArgs

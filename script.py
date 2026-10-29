@@ -1,5 +1,8 @@
 import argparse
+import os
+import shutil
 import sys
+from pathlib import Path
 from urllib.parse import unquote
 from graphviz import Digraph
 import requests
@@ -9,6 +12,11 @@ from bs4 import BeautifulSoup
 HEADERS = {'User-Agent': 'dotwiki/1.0 (https://github.com/podypodpod/dotwiki)'}
 WIKI = 'https://en.wikipedia.org'
 API = WIKI + '/w/api.php'
+
+# always save next to the script, wherever it's run from
+OUTPUT = Path(__file__).resolve().parent / 'output' / 'wiki-path.gv'
+# where the Graphviz installer puts dot on Windows, for when it isn't on the PATH yet
+GRAPHVIZ_FOLDERS = [r'C:\Program Files\Graphviz\bin', r'C:\Program Files (x86)\Graphviz\bin']
 
 # parts of the page that aren't the main article: notes at the top, nav boxes, sidebars, references
 NOT_CONTENT = ['hatnote', 'navbox', 'vertical-navbox', 'sidebar', 'reflist', 'references', 'mw-editsection',
@@ -224,6 +232,16 @@ def drawPath(path):
         dot.edge(page, nextPage)
     return dot
 
+def findGraphviz():
+    # True if dot can be run, adding the usual install folder to the PATH if that's where it is
+    if shutil.which('dot'):
+        return True
+    for folder in GRAPHVIZ_FOLDERS:
+        if os.path.isfile(os.path.join(folder, 'dot.exe')):
+            os.environ['PATH'] = os.environ.get('PATH', '') + os.pathsep + folder
+            return True
+    return False
+
 def parseArgs(argv=None):
     parser = argparse.ArgumentParser(description='Find the shortest chain of Wikipedia links from one page to another')
     parser.add_argument('start', help='page to start from, e.g. "Black hole"')
@@ -264,7 +282,14 @@ def main(argv=None):
     clicks = len(path) - 1
     print("\n" + " -> ".join(path))
     print(str(clicks) + " click(s), found with " + str(api.requests) + " requests")
-    drawPath(path).render('output/wiki-path.gv', view=not args.no_view)
+    dot = drawPath(path)
+    if findGraphviz():
+        dot.render(str(OUTPUT), view=not args.no_view)
+        print("diagram saved to " + str(OUTPUT) + ".pdf")
+    else:
+        dot.save(str(OUTPUT))
+        print("Graphviz isn't installed or isn't on your PATH, so only the dot file was saved to " + str(OUTPUT))
+        print("install it from https://www.graphviz.org/download/ to get the pdf")
     return 0
 
 
