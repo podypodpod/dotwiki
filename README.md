@@ -44,7 +44,9 @@ python script.py Cheese Volcano --max-requests 2000        # allow a longer sear
 It gives up after 500 requests by default. If a page fails to load it carries on without it, and lists it at the end in case a shorter path went through it. It exits with 1 if no path was found.
 
 ### Output
-See the `output` folder for `wiki-path.gv`, the raw dot notation graph, and `wiki-path.gv.pdf`, the viewable diagram.
+See the `output` folder for `wiki-path.gv`, the raw dot notation graph, and `wiki-path.gv.pdf`, the viewable diagram. They always go in this project's `output` folder, whichever folder you run the script from.
+
+If Graphviz isn't on your PATH it also looks in the usual install folder, `C:\Program Files\Graphviz\bin`. If it can't find it at all you still get the path and the `.gv` file, just not the PDF.
 
 ## Tests
 The tests use a made-up Wikipedia instead of the real one, so they don't need a connection.
