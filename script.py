@@ -62,6 +62,7 @@ def buildGraph(topic, branchesDeep):
     startingUrl = "/wiki/" + startingTopic
     nodes = {startingUrl}
     dot.node(startingUrl, startingTopic)
+    failed = []
 
     def recurse(href, branchesDeep):
         # at the last level there are no links left to follow, so don't fetch the page
@@ -70,7 +71,15 @@ def buildGraph(topic, branchesDeep):
         visited.add(href)
         branchesDeep = branchesDeep - 1
 
-        for newHref, linkText in articleLinks(href)[:branchesDeep]:
+        # one bad page shouldn't stop the whole run, note it and carry on with the rest
+        try:
+            pageLinks = articleLinks(href)
+        except requests.RequestException as e:
+            print("    failed: " + str(e))
+            failed.append((href, str(e)))
+            return
+
+        for newHref, linkText in pageLinks[:branchesDeep]:
             print("    " + linkText + " -> " + newHref)
             if newHref not in nodes:
                 nodes.add(newHref)
@@ -79,7 +88,7 @@ def buildGraph(topic, branchesDeep):
             recurse(newHref, branchesDeep)
 
     recurse(startingUrl, branchesDeep)
-    return dot
+    return dot, failed
 
 def parseArgs(argv=None):
     parser = argparse.ArgumentParser(description='Draw a diagram of the links between Wikipedia pages')
@@ -91,5 +100,10 @@ def parseArgs(argv=None):
 
 if __name__ == '__main__':
     args = parseArgs()
-    dot = buildGraph(args.topic, args.depth)
+    dot, failed = buildGraph(args.topic, args.depth)
     dot.render('output/wiki-links.gv', view=not args.no_view)
+
+    if failed:
+        print("\n" + str(len(failed)) + " page(s) couldn't be fetched, their links are missing from the diagram:")
+        for href, error in failed:
+            print("    " + href + " - " + error)

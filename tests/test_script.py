@@ -34,7 +34,7 @@ class FakeResponse:
 
 @pytest.fixture
 def fakeWiki(monkeypatch):
-    # pages maps a /wiki/ path to its html, calls records every request made
+    # pages maps a /wiki/ path to its html (or an exception to raise), calls records every request made
     pages = {}
     calls = []
 
@@ -43,6 +43,8 @@ def fakeWiki(monkeypatch):
         path = url[len(script.WIKI):]
         if path not in pages:
             return FakeResponse('', 404)
+        if isinstance(pages[path], Exception):
+            raise pages[path]
         return FakeResponse(pages[path])
 
     monkeypatch.setattr(script.requests, 'get', fakeGet)
@@ -173,7 +175,7 @@ def test_buildGraph_follows_fewer_links_each_level(fakeWiki):
     pages['/wiki/A'] = links('A1', 'A2')
     pages['/wiki/B'] = links('B1', 'B2')
 
-    dot = script.buildGraph('Start', 3)
+    dot, failed = script.buildGraph('Start', 3)
 
     # depth 3: 2 links from Start, then 1 from each of those, and the last level isn't fetched
     assert edges(dot) == [
@@ -196,7 +198,7 @@ def test_buildGraph_does_not_refetch_visited_pages(fakeWiki):
     pages['/wiki/B'] = links('A', 'C', 'Start')
     pages['/wiki/C'] = links('A', 'B', 'Start')
 
-    dot = script.buildGraph('Start', 4)
+    dot, failed = script.buildGraph('Start', 4)
 
     fetched = [c['url'] for c in calls]
     assert len(fetched) == len(set(fetched))
@@ -212,7 +214,7 @@ def test_buildGraph_adds_each_node_once(fakeWiki):
     pages['/wiki/B'] = links('C', 'A')
     pages['/wiki/C'] = links('A', 'B')
 
-    dot = script.buildGraph('Start', 4)
+    dot, failed = script.buildGraph('Start', 4)
 
     ids = nodeIds(dot)
     assert len(ids) == len(set(ids))
@@ -222,7 +224,7 @@ def test_buildGraph_adds_each_node_once(fakeWiki):
 def test_buildGraph_depth_one_makes_no_requests(fakeWiki):
     _, calls = fakeWiki
 
-    dot = script.buildGraph('Start', 1)
+    dot, failed = script.buildGraph('Start', 1)
 
     assert calls == []
     assert nodeIds(dot) == ['/wiki/Start']
@@ -232,10 +234,81 @@ def test_buildGraph_turns_spaces_into_underscores(fakeWiki):
     pages, calls = fakeWiki
     pages['/wiki/Black_hole'] = links('Star')
 
-    dot = script.buildGraph('Black hole', 2)
+    dot, failed = script.buildGraph('Black hole', 2)
 
     assert calls[0]['url'] == 'https://en.wikipedia.org/wiki/Black_hole'
     assert edges(dot) == [('/wiki/Black_hole', '/wiki/Star')]
+
+
+def test_buildGraph_carries_on_after_a_failed_page(fakeWiki):
+    pages, calls = fakeWiki
+    pages['/wiki/Start'] = links('Broken', 'B', 'C')
+    # no page for Broken, so it gets a 404
+    pages['/wiki/B'] = links('B1', 'B2')
+
+    dot, failed = script.buildGraph('Start', 3)
+
+    assert [href for href, _ in failed] == ['/wiki/Broken']
+    assert '404' in failed[0][1]
+    # the broken page is still drawn, and the pages after it are still followed
+    assert edges(dot) == [
+        ('/wiki/Start', '/wiki/Broken'),
+        ('/wiki/Start', '/wiki/B'),
+        ('/wiki/B', '/wiki/B1'),
+    ]
+    assert [c['url'] for c in calls] == [
+        'https://en.wikipedia.org/wiki/Start',
+        'https://en.wikipedia.org/wiki/Broken',
+        'https://en.wikipedia.org/wiki/B',
+    ]
+
+
+def test_buildGraph_reports_every_kind_of_failure(fakeWiki):
+    pages, _ = fakeWiki
+    pages['/wiki/Start'] = links('Timeout', 'Offline', 'Missing', 'Fine')
+    pages['/wiki/Timeout'] = requests.Timeout('read timed out')
+    pages['/wiki/Offline'] = requests.ConnectionError('connection refused')
+    pages['/wiki/Fine'] = links('X')
+    pages['/wiki/X'] = links()
+
+    dot, failed = script.buildGraph('Start', 5)
+
+    assert [href for href, _ in failed] == ['/wiki/Timeout', '/wiki/Offline', '/wiki/Missing']
+    assert 'read timed out' in failed[0][1]
+    assert 'connection refused' in failed[1][1]
+    assert ('/wiki/Fine', '/wiki/X') in edges(dot)
+
+
+def test_buildGraph_failed_start_page_gives_just_the_start_node(fakeWiki):
+    dot, failed = script.buildGraph('Missing', 3)
+
+    assert [href for href, _ in failed] == ['/wiki/Missing']
+    assert nodeIds(dot) == ['/wiki/Missing']
+    assert edges(dot) == []
+
+
+def test_buildGraph_does_not_retry_a_failed_page(fakeWiki):
+    pages, calls = fakeWiki
+    pages['/wiki/Start'] = links('Broken', 'A')
+    pages['/wiki/A'] = links('Broken', 'B')
+    pages['/wiki/B'] = links()
+
+    dot, failed = script.buildGraph('Start', 4)
+
+    assert [c['url'] for c in calls].count('https://en.wikipedia.org/wiki/Broken') == 1
+    assert len(failed) == 1
+    assert ('/wiki/A', '/wiki/Broken') in edges(dot)
+
+
+def test_buildGraph_reports_nothing_when_all_pages_load(fakeWiki):
+    pages, _ = fakeWiki
+    pages['/wiki/Start'] = links('A', 'B')
+    pages['/wiki/A'] = links('B')
+    pages['/wiki/B'] = links('A')
+
+    dot, failed = script.buildGraph('Start', 3)
+
+    assert failed == []
 
 
 # parseArgs
